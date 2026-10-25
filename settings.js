@@ -448,12 +448,12 @@ window.SettingsPage = (function () {
             <h2>识别规则</h2>
             <div class="panel-tools"><button class="btn primary" id="soAdd">新增识别规则</button></div>
           </div>
-          <p class="hint">点击行可在右侧编辑该规则的字段映射。接口占位：<code>PUT /api/settings/so-rules/{id}/mappings</code></p>
+          <p class="hint">此页为旧版规则的演示配置，尚未用于订舱单导入。当前导入使用内置字段对应，区分接货地、装港、卸港和交货地；修改此页不会改变导入结果。点击行可编辑并保存演示配置。</p>
           ${soRules.length ? `<div class="table-wrap"><table>
             <caption class="sr-only">SO 识别规则列表</caption>
             <thead><tr><th>规则名称</th><th>识别方式</th><th>优先级</th><th>命中</th><th>状态</th><th class="ra">操作</th></tr></thead>
             <tbody>${rows}</tbody></table></div>`
-        : emptyBox('尚未配置识别规则', '新增规则后，为其添加「源字段 → 目标字段」映射即可参与解析。')}
+        : emptyBox('尚未配置识别规则', '可新增并保存字段映射演示配置；当前订舱单导入仍使用内置字段对应。')}
         </section>
       </div>
       <aside class="set-side">
@@ -541,7 +541,7 @@ window.SettingsPage = (function () {
       const bad = soRules.flatMap(r => r.mappings.filter(m => !m.source || !m.target));
       if (bad.length) { ctx.toast('保存失败：存在未填完整的字段映射', 'error'); return; }
       pushLog('SO 识别规则', '修改', '字段映射', `更新 ${soRules.length} 条规则的映射配置`);
-      ctx.toast('识别规则已保存（接口占位 PUT /api/settings/so-rules/{id}/mappings）');
+      ctx.toast('识别规则演示配置已保存，暂不影响订舱单导入');
     };
   }
 
