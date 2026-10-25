@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>航务通 · 货代业务管理系统</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip" href="#main">跳到主要内容</a>
+  <div id="application" inert>
+  <header class="topbar">
+    <button id="menuBtn" class="icon-btn" aria-label="切换侧栏" aria-expanded="true">☰</button>
+    <div class="brand"><span class="logo">航</span><div><strong>航务通</strong><small>FREIGHT OPERATIONS</small></div></div>
+    <label class="global-search"><span>⌕</span><input id="globalSearch" placeholder="搜索操作日志…" aria-label="搜索操作日志"></label>
+  </header>
+  <div class="shell">
+    <aside id="sidebar" class="sidebar">
+      <div class="side-head">
+        <p class="nav-caption">业务菜单</p>
+        <button id="sideClose" class="side-close" type="button" aria-label="收起侧栏">‹</button>
+      </div>
+      <nav id="nav"></nav>
+      <button id="railNote" class="rail-note" type="button" aria-label="异常备注">
+        <span class="nav-icon" aria-hidden="true">✎</span><span class="nav-text">备注</span>
+        <i id="railNoteCount">0</i>
+      </button>
+      <section class="side-note" aria-labelledby="noteTitle">
+        <div class="side-note-head">
+          <small id="noteTitle">异常备注</small>
+          <div class="note-head-actions"><span class="note-count" id="noteCount">0</span><button id="noteClose" class="note-toggle" type="button" aria-label="关闭备注" title="关闭备注" aria-controls="noteContent" aria-expanded="true">×</button><button id="noteOpen" class="note-toggle note-open" type="button" aria-controls="noteContent" aria-expanded="false" hidden>展开备注</button></div>
+        </div>
+        <div id="noteContent" class="note-content">
+        <label class="sr-only" for="noteInput">异常情况备注</label>
+        <textarea id="noteInput" rows="3" placeholder="记录异常情况，如：SO-2026-002 舱位超售，需改配下一水…"></textarea>
+        <div class="side-note-foot">
+          <button id="noteSave" class="mini" type="button">保存备注</button>
+          <span class="note-tip">Ctrl + Enter 保存</span>
+        </div>
+        <ul class="side-note-list" id="noteList"></ul>
+        <small class="field-error" id="noteErr" hidden></small>
+        </div>
+      </section>
+    </aside>
+    <button id="scrim" class="nav-scrim" type="button" tabindex="-1" aria-label="关闭侧栏" hidden></button>
+    <main id="main" tabindex="-1">
+      <div class="page-head">
+        <div class="head-text">
+          <p id="eyebrow">业务总览</p>
+          <h1 id="pageTitle">工作台</h1>
+          <p id="pageDesc"></p>
+        </div>
+        <small id="storageStatus">已保存在此浏览器 · 上海时间</small>
+      </div>
+      <section class="toolbar" id="toolbar">
+        <div id="filters" class="filters"></div>
+        <div class="toolbar-actions"><label class="search" hidden><span>⌕</span><input id="search" placeholder="在当前模块搜索" aria-label="搜索当前设置分区"></label><button id="primaryBtn" class="btn primary">＋ 新建待办</button></div>
+      </section>
+      <section id="content" class="content" aria-live="polite"></section>
+    </main>
+  </div>
+  </div>
+  <dialog id="developmentNotice" aria-labelledby="developmentTitle" aria-describedby="developmentDescription">
+    <form id="developmentForm" novalidate>
+      <header><h2 id="developmentTitle">开发中使用提醒</h2></header>
+      <div class="development-body" id="developmentDescription">
+        <p class="development-lead">航务通目前仍处于开发与测试阶段，请谨慎使用。</p>
+        <ul><li>可能存在功能不完善、运行错误、保存失败、数据错误或丢失等情况。</li><li>请不要将本应用作为唯一业务记录；重要数据请另行备份，并定期检查本地文件是否保存成功。</li><li>船期与提醒可能延迟或不准确，办理业务前请向相关方核实。</li></ul>
+        <p>每次打开程序都会显示本提醒。请了解上述情况后再继续使用。</p>
+        <label class="development-ack"><input id="developmentAck" type="checkbox">我已知晓上述提醒，将谨慎使用并做好数据备份</label>
+        <p id="developmentError" class="field-error" role="alert"></p>
+      </div>
+      <footer><button type="submit" id="developmentContinue" class="btn primary" disabled>我已知晓，开始使用</button></footer>
+    </form>
+  </dialog>
+  <dialog id="modal">
+    <form id="modalForm" method="dialog" novalidate>
+      <header><h2 id="modalTitle">编辑</h2><button type="button" id="modalClose" aria-label="关闭">×</button></header>
+      <div id="modalBody"></div>
+      <footer><button type="button" id="modalCancel" class="btn">取消</button><button type="submit" id="modalSave" class="btn primary">保存</button></footer>
+    </form>
+  </dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="local-data.js"></script>
+  <script src="startup.js"></script>
+</body>
+</html>
