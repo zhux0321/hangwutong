@@ -339,20 +339,21 @@ function orderTable(rows) {
   return `<div class="table-wrap"><table class="order-list">
       <caption class="sr-only">订单清单</caption>
       <thead><tr>
+        <th>当前节点</th><th>状态</th>
         <th>提单号</th><th>SO 号</th><th>工作号</th><th>起运港</th><th>目的港</th>
         <th>截单时间</th><th>截关 / 港时间</th><th>ETD</th><th>ETA</th><th>船名 / 航次</th>
-        <th>销售</th><th>当前节点</th><th>状态</th><th class="ra">操作</th>
+        <th>销售</th><th class="ra">操作</th>
       </tr></thead>
       <tbody>${rows.map(o => `<tr class="order-row${state.expanded === o.id ? ' expanded' : ''}" data-order-row="${esc(o.id)}" tabindex="0" aria-expanded="${state.expanded === o.id}" aria-controls="detail-${esc(o.id)}" aria-label="${esc(o.so)}，点击展开或收起详情">
-        <td><span class="row-arrow" aria-hidden="true">${state.expanded === o.id ? '▾' : '▸'}</span><code>${esc(o.bl || '待补')}</code></td>
+        <td><span class="row-arrow" aria-hidden="true">${state.expanded === o.id ? '▾' : '▸'}</span><span class="node" title="${esc(currentNode(o))}">${esc(currentNode(o))}</span></td>
+        <td>${tag(orderStatus(o))}</td>
+        <td><code>${esc(o.bl || '待补')}</code></td>
         <td><b>${esc(o.so)}</b></td><td><code>${esc(o.wo || '待补')}</code></td>
         <td>${esc(o.pol)}</td><td>${esc(o.pod)}</td>
         <td class="num">${dateText(o.cutoff)}${o.cutoffDone ? '<small class="done-label">✓ 已完成</small>' : ''}</td>
         <td class="num">${dateText(o.cutport)}${o.cutportDone ? '<small class="done-label">✓ 已完成</small>' : ''}</td>
         <td class="num">${dateText(o.etd)}</td><td class="num">${dateText(o.eta)}</td>
         <td>${esc(o.vessel || '待定')}</td><td>${esc(o.sales)}</td>
-        <td><span class="node" title="${esc(currentNode(o))}">${esc(currentNode(o))}</span></td>
-        <td>${tag(orderStatus(o))}</td>
         <td class="row-actions">
           <button type="button" class="mini" data-order-view="${esc(o.id)}">${state.expanded === o.id ? '收起' : '详情'}</button>
           <button type="button" class="mini" data-order-edit="${esc(o.id)}">编辑</button>
