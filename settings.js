@@ -973,7 +973,7 @@ window.SettingsPage = (function () {
         <section class="panel">
           <div class="panel-head"><h2>环境信息（只读）</h2></div>
           <dl class="desc">
-            <dt>系统版本</dt><dd>1.3.0（电脑端演示）</dd>
+            <dt>系统版本</dt><dd>1.4.0（电脑端演示）</dd>
             <dt>运行环境</dt><dd>浏览器本地模拟数据</dd>
             <dt>时区</dt><dd>Asia/Shanghai</dd>
             <dt>接口状态</dt><dd><span class="tag orange">未接入</span> 前端原型阶段</dd>

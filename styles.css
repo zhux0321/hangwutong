@@ -446,6 +446,38 @@ table.order-list .order-detail-row:hover>td{background:#f6f9fc}
 .deadline-item.overdue{border-left:3px solid var(--red)}
 .todo-empty{padding:24px}
 .todo-note{white-space:pre-wrap;overflow-wrap:anywhere;margin:5px 0 0;font-size:12px;color:var(--muted)}
+.date-zone{display:block;color:var(--muted);font-size:10px;margin-top:3px;white-space:normal}
+.booking-entry{padding:18px 20px;background:#f5f9fd;border-bottom:1px solid var(--line)}
+.booking-entry small{display:block;margin-top:8px;color:var(--muted);font-size:12px}
+dialog.booking-modal{width:min(960px,95vw)}
+.booking-input{padding:18px 20px;border-bottom:1px solid var(--line);background:#f5f9fd}
+.booking-input>p{margin:0 0 12px;font-size:13px;color:#496273;line-height:1.7}
+.booking-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.booking-actions label{font-size:12px;color:var(--muted)}
+.booking-input textarea{width:100%;border:1px solid var(--line);border-radius:9px;padding:12px;resize:vertical;background:white;min-height:100px;font-size:13px}
+.booking-input>small{display:block;color:var(--muted);font-size:11px;line-height:1.6;margin-top:6px}
+#bookingProgress{margin:10px 0 0;min-height:20px;color:var(--blue)}
+#bookingSources{padding-left:18px;max-height:150px;overflow:auto;font-size:12px;color:#496273;line-height:2.5}
+.booking-input details{font-size:12px;color:var(--muted)}
+.booking-input summary,.import-record summary{cursor:pointer;color:var(--blue);font-weight:600}
+#bookingEvidence{max-height:330px;overflow:auto;margin-top:10px;background:white;border:1px solid var(--line);border-radius:8px;padding:12px}
+#bookingEvidence pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;color:#496273;line-height:1.6}
+.booking-candidate{padding:8px 0;border-bottom:1px solid var(--line)}
+.booking-candidate p{margin:5px 0;overflow-wrap:anywhere}
+.booking-candidate small{color:var(--muted)}
+.booking-candidate select{display:block;max-width:100%;padding:6px;margin-top:6px;border:1px solid #d79b3d;border-radius:6px}
+.booking-check{margin:0 20px 16px;padding:16px;background:#f8fafc;border:1px solid var(--line);border-radius:10px;font-size:12px;line-height:1.8;overflow-wrap:anywhere}
+.booking-check h3{font-size:15px;margin:0 0 6px}.booking-check h4{margin:8px 0 4px}
+.booking-check ul{margin:4px 0;padding-left:20px}.booking-check .check-error{color:var(--red)}
+.check-pass{color:var(--green);margin:0}
+.booking-review{padding:0 20px 20px;font-size:13px;line-height:1.8}
+.booking-review label{display:flex;align-items:flex-start;gap:8px}
+.booking-review input{margin-top:5px;flex:none;accent-color:var(--blue)}
+.booking-modal .field{min-width:0}.booking-modal .field input,.booking-modal .field select{min-width:0;width:100%}
+.booking-modal .form-grid{padding-bottom:16px}
+.import-record{padding:12px;margin:12px 0;border:1px solid var(--line);border-radius:10px;font-size:12px;line-height:1.7;overflow-wrap:anywhere;background:#f8fafc}
+.import-record p{margin:5px 0}
+button:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:none}
 .steps input[type=checkbox]{accent-color:var(--green);width:16px;height:16px}
 .other-todos{margin:0 18px 18px;border-top:1px solid var(--line);padding-top:14px}
 .other-todos summary{cursor:pointer;font-size:13px;color:var(--muted)}

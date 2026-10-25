@@ -10,7 +10,7 @@ acknowledge.onchange = () => { proceed.disabled = !acknowledge.checked; };
 function loadAppScript(src) {
   return new Promise((resolve, reject) => {
     const script = document.createElement('script');
-    script.src = src;
+    script.src = src + '?v=1.4.0';
     script.onload = resolve;
     script.onerror = () => reject(new Error('程序文件加载失败，请重新解压完整交付包'));
     document.body.appendChild(script);
@@ -23,6 +23,8 @@ document.getElementById('developmentForm').onsubmit = async event => {
   proceed.textContent = '正在打开…';
   try {
     await window.LocalData.start();
+    await loadAppScript('booking-parser.js');
+    await loadAppScript('booking-import.js');
     await loadAppScript('settings.js');
     await loadAppScript('app.js');
     AppSession.accepted = true;

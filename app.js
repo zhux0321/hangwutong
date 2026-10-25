@@ -57,6 +57,16 @@ function dateValue(value) {
   return Date.parse(value.length === 10 ? value + 'T00:00:00+08:00' : value + ':00+08:00');
 }
 function dateText(value) { return value ? esc(String(value).replace('T', ' ')) : '待定'; }
+function orderDateValue(order, key) {
+  return BookingParser.epoch(order[key], order.timeZones?.[key] || 'Asia/Shanghai');
+}
+function orderDateText(order, key) {
+  const zone = order.timeZones?.[key];
+  const rawZone = order.importSource?.sourceTimes?.[key]?.rawZone || '';
+  const zoneText = zone === 'unconfirmed' ? (rawZone ? rawZone + ' · ' : '') + '时区待核实'
+    : zone === 'Asia/Shanghai' ? '上海时间' : zone || '';
+  return dateText(order[key]) + (order[key] && zoneText ? '<small class="date-zone">' + esc(zoneText) + '</small>' : '');
+}
 function seedDate(value) {
   return /^\d{2}\/\d{2}/.test(value || '') ? '2026-' + value.replace('/', '-').replace(' ', 'T') : value || '';
 }
@@ -139,9 +149,10 @@ function currentNode(o) {
 function deadlineReminders(now = Date.now()) {
   return ORDER_LIST.flatMap(o => orderStatus(o) === '已完成' ? [] : [
     { key: 'cutoff', flag: 'cutoffDone', name: '截单' },
-    { key: 'cutport', flag: 'cutportDone', name: '截关 / 港' }
+    { key: 'cutport', flag: 'cutportDone', name: '截关 / 港' },
+    { key: 'releaseCutoff', flag: 'releaseCutoffDone', name: '截止放行条' }
   ].flatMap(d => {
-    const at = dateValue(o[d.key]);
+    const at = orderDateValue(o, d.key);
     if (o[d.flag] || !Number.isFinite(at) || at - now > 24 * HOUR) return [];
     return [{ id: o.id + '-' + d.key, order: o, ...d, at, overdue: at < now }];
   })).sort((a, b) => a.at - b.at);
@@ -200,6 +211,7 @@ function openForm(title, fields, onSubmit, opts = {}) {
     fields.length ? `<div class="form-grid">${grid}</div>` : ''}`;
 
   const save = $('#modalSave');
+  save.disabled = false;
   save.textContent = opts.submitText || '保存';
   save.className = 'btn ' + (opts.danger ? 'danger' : 'primary');
   $('#modalCancel').hidden = !!opts.hideCancel;
@@ -321,7 +333,7 @@ function dashboard() {
     hint = '截单或截关 / 港进入截止前 24 小时；未完成的逾期事项继续显示，按最早截止时间排序。';
   } else if (state.filter === '即将到港') {
     const todayStart = dateValue(businessNow().slice(0, 10));
-    rows = ORDER_LIST.filter(o => orderStatus(o) !== '已完成' && dateValue(o.eta) >= todayStart && dateValue(o.eta) < todayStart + 48 * HOUR).sort((a, b) => dateValue(a.eta) - dateValue(b.eta));
+    rows = ORDER_LIST.filter(o => orderStatus(o) !== '已完成' && orderDateValue(o, 'eta') >= todayStart && orderDateValue(o, 'eta') < todayStart + 48 * HOUR).sort((a, b) => orderDateValue(a, 'eta') - orderDateValue(b, 'eta'));
     hint = '展示今天和明天预计到港的未完结订单，按 ETA 升序。';
   }
   return `<div class="panel">
@@ -331,7 +343,7 @@ function dashboard() {
   </div>`;
 }
 function nextDeadline(o) {
-  return Math.min(o.cutoffDone ? Infinity : dateValue(o.cutoff) || Infinity, o.cutportDone ? Infinity : dateValue(o.cutport) || Infinity);
+  return Math.min(...[['cutoff', 'cutoffDone'], ['cutport', 'cutportDone'], ['releaseCutoff', 'releaseCutoffDone']].map(([key, flag]) => o[flag] ? Infinity : orderDateValue(o, key) || Infinity));
 }
 
 function orderTable(rows) {
@@ -350,9 +362,9 @@ function orderTable(rows) {
         <td><code>${esc(o.bl || '待补')}</code></td>
         <td><b>${esc(o.so)}</b></td><td><code>${esc(o.wo || '待补')}</code></td>
         <td>${esc(o.pol)}</td><td>${esc(o.pod)}</td>
-        <td class="num">${dateText(o.cutoff)}${o.cutoffDone ? '<small class="done-label">✓ 已完成</small>' : ''}</td>
-        <td class="num">${dateText(o.cutport)}${o.cutportDone ? '<small class="done-label">✓ 已完成</small>' : ''}</td>
-        <td class="num">${dateText(o.etd)}</td><td class="num">${dateText(o.eta)}</td>
+        <td class="num">${orderDateText(o, 'cutoff')}${o.cutoffDone ? '<small class="done-label">✓ 已完成</small>' : ''}</td>
+        <td class="num">${orderDateText(o, 'cutport')}${o.cutportDone ? '<small class="done-label">✓ 已完成</small>' : ''}</td>
+        <td class="num">${orderDateText(o, 'etd')}</td><td class="num">${orderDateText(o, 'eta')}</td>
         <td>${esc(o.vessel || '待定')}</td><td>${esc(o.sales)}</td>
         <td class="row-actions">
           <button type="button" class="mini" data-order-view="${esc(o.id)}">${state.expanded === o.id ? '收起' : '详情'}</button>
@@ -367,12 +379,12 @@ function todoTable(rows, other = false) {
   if (!rows.length) return `<div class="empty todo-empty"><p>${other ? '暂无后续或已完成待办' : '暂无需要处理的手工待办'}</p></div>`;
   return `<div class="panel-body"><div class="steps">${rows.map(r => `<div class="step ${r.done ? 'done' : dateValue(r.due) < Date.now() ? 'late' : ''}">
     <input type="checkbox" data-todo="${esc(r.id)}" aria-label="完成待办 ${esc(r.title)}"${r.done ? ' checked' : ''}>
-    <div><strong>${esc(r.title)}</strong><small>${esc(r.owner)} · ${dateText(r.due)}${r.so ? ' · ' + esc(r.so) : ''}</small>${r.note ? `<p class="todo-note">${esc(r.note)}</p>` : ''}</div>
+    <div><strong>${esc(r.title)}</strong><small>${esc(r.owner)} · ${dateText(r.due)}${r.so ? ' · ' + esc(r.so) : ''}</small>${r.note ? `<p class="todo-note">${esc(r.note)}</p>` : ''}${r.orderId ? `<button type="button" class="mini" data-todo-order="${esc(r.orderId)}">查看关联订单</button>` : ''}</div>
     ${tag(r.done ? '已完成' : dateValue(r.due) < Date.now() ? '已逾期' : '待处理')}
   </div>`).join('')}</div></div>`;
 }
 function reminderTable(rows) {
-  return rows.length ? `<div class="panel-body reminder-list"><h3>截止提醒</h3>${rows.map(r => `<label class="deadline-item${r.overdue ? ' overdue' : ''}"><input type="checkbox" data-reminder-order="${esc(r.order.id)}" data-reminder-flag="${r.flag}" aria-label="完成 ${esc(r.order.so)} ${r.name}"><span><b>${esc(r.order.so)} · ${r.name}</b><small>${dateText(r.order[r.key])} · ${r.overdue ? '已逾期，待处理' : '24 小时内截止'}</small></span></label>`).join('')}</div>` : '<p class="list-hint">暂无截止提醒。</p>';
+  return rows.length ? `<div class="panel-body reminder-list"><h3>截止提醒</h3>${rows.map(r => `<label class="deadline-item${r.overdue ? ' overdue' : ''}"><input type="checkbox" data-reminder-order="${esc(r.order.id)}" data-reminder-flag="${r.flag}" aria-label="完成 ${esc(r.order.so)} ${r.name}"><span><b>${esc(r.order.so)} · ${r.name}</b><small>${orderDateText(r.order, r.key)} · ${r.overdue ? '已逾期，待处理' : '24 小时内截止'}</small></span></label>`).join('')}</div>` : '<p class="list-hint">暂无截止提醒。</p>';
 }
 function sizeDetails() {
   const wrap = $('#content .table-wrap');
@@ -387,14 +399,24 @@ function render() {
 }
 
 /** 订单详情的元信息 + 流程节点 HTML */
+function importRecordHtml(o) {
+  const record = o.importSource;
+  if (!record || typeof record !== 'object') return '';
+  const documents = Array.isArray(record.documents) ? record.documents.filter(d => d && typeof d.name === 'string') : [];
+  const fields = record.candidates && typeof record.candidates === 'object' ? Object.entries(record.candidates).filter(([key, entries]) => BookingParser.labels[key] && Array.isArray(entries)) : [];
+  return `<details class="import-record"><summary>订舱单识别与自检记录</summary><p>识别来源：${documents.map(d => esc(d.name) + ' 第' + esc(d.page) + '页').join('；') || '来源记录不完整，请核对原单'} · ${record.reviewed ? '已人工核对' : '待核对'}</p>${fields.map(([key, entries]) => `<p><b>${esc(BookingParser.labels[key])}</b>：${entries.filter(Boolean).map(entry => esc(entry.raw)).join(' / ')}</p>`).join('')}<p>此处保留原单识别证据，当前字段以订单为准。原图与 PDF 未上传或保存到网站。</p></details>`;
+}
 function detailHtml(o) {
   return `<div class="order-detail-inner">
     <div class="detail-heading"><div><h3>${esc(o.so)} · 订单详情</h3><p>${esc(o.pol)} → ${esc(o.pod)} · ${esc(o.vessel || '船名待补')} · 销售 ${esc(o.sales)}</p></div><button type="button" class="mini" data-order-edit="${esc(o.id)}">编辑订单</button></div>
     <div class="detail-deadlines">
-      <label class="deadline-item"><input type="checkbox" data-deadline="cutoffDone" data-order="${esc(o.id)}"${o.cutoffDone ? ' checked' : ''}><span><b>截单已完成</b><small>${dateText(o.cutoff)}</small></span></label>
-      <label class="deadline-item"><input type="checkbox" data-deadline="cutportDone" data-order="${esc(o.id)}"${o.cutportDone ? ' checked' : ''}><span><b>截关 / 港已完成</b><small>${dateText(o.cutport)}</small></span></label>
-      <div class="vessel-query"><a href="https://weiyun001.com/" target="_blank" rel="noopener noreferrer">维运网查询 ↗</a><small>船名 / 航次：${esc(o.vessel || '待补')}<br>ETD ${dateText(o.etd)} · ETA ${dateText(o.eta)}<br>查询后可在“编辑订单”更新船期</small></div>
+      <label class="deadline-item"><input type="checkbox" data-deadline="cutoffDone" data-order="${esc(o.id)}"${o.cutoffDone ? ' checked' : ''}><span><b>截单已完成</b><small>${orderDateText(o, 'cutoff')}</small></span></label>
+      <label class="deadline-item"><input type="checkbox" data-deadline="cutportDone" data-order="${esc(o.id)}"${o.cutportDone ? ' checked' : ''}><span><b>截关 / 港已完成</b><small>${orderDateText(o, 'cutport')}</small></span></label>
+      ${o.releaseCutoff ? `<label class="deadline-item"><input type="checkbox" data-deadline="releaseCutoffDone" data-order="${esc(o.id)}"${o.releaseCutoffDone ? ' checked' : ''}><span><b>放行条已完成</b><small>${orderDateText(o, 'releaseCutoff')}</small></span></label>` : ''}
+      <div class="vessel-query"><a href="https://weiyun001.com/" target="_blank" rel="noopener noreferrer">维运网查询 ↗</a><small>船名 / 航次：${esc(o.vessel || '待补')}<br>ETD ${orderDateText(o, 'etd')} · ETA ${orderDateText(o, 'eta')}<br>查询后可在“编辑订单”更新船期</small></div>
     </div>
+    ${o.receipt ? `<p class="list-hint">接货地：${esc(o.receipt)}</p>` : ''}
+    ${importRecordHtml(o)}
     <div class="flow-head"><h3>流程状态</h3><span class="note">六个节点可独立更新；选择即保存</span></div>
     <ol class="flow flow-grid">${flowItems(o)}</ol>
     <div class="order-remark"><label for="remark-${esc(o.id)}">异常备注</label><textarea id="remark-${esc(o.id)}" data-remark="${esc(o.id)}" rows="2" placeholder="记录这票订单的异常情况">${esc(o.remark || '')}</textarea><button type="button" class="mini" data-remark-save="${esc(o.id)}">保存备注</button><small data-remark-status="${esc(o.id)}" role="status"></small></div>
@@ -440,6 +462,11 @@ function wireDashboard() {
   $$('[data-order-view]').forEach(b => b.onclick = () => toggle(b.dataset.orderView));
   $$('[data-order-edit]').forEach(b => b.onclick = () => editOrder(ORDER_LIST.find(o => o.id === b.dataset.orderEdit)));
   if ($('#newOrder')) $('#newOrder').onclick = () => editOrder();
+  $$('[data-todo-order]').forEach(button => button.onclick = () => {
+    if (!ORDER_LIST.some(o => o.id === button.dataset.todoOrder)) { toast('关联订单不存在，请核对本地数据', 'error'); return; }
+    state.filter = '全部'; state.expanded = button.dataset.todoOrder; renderContent();
+    document.getElementById('detail-' + state.expanded)?.scrollIntoView({ block: 'nearest' });
+  });
   $$('[data-flow]').forEach(el => el.onchange = () => {
     const o = ORDER_LIST.find(o => o.id === el.dataset.order);
     flowOf(o)[el.dataset.flow] = el.value;
@@ -482,22 +509,32 @@ function editOrder(order) {
     { key: 'so', label: 'SO 号', value: o.so, required: true },
     { key: 'bl', label: '提单号', value: o.bl }, { key: 'wo', label: '工作号', value: o.wo },
     { key: 'sales', label: '销售', value: o.sales, required: true },
+    { key: 'receipt', label: '接货地（可选）', value: o.receipt, full: true },
     { key: 'pol', label: '起运港', value: o.pol, required: true }, { key: 'pod', label: '目的港', value: o.pod, required: true },
     { key: 'cutoff', label: '截单时间（上海时间）', type: 'datetime-local', value: o.cutoff },
     { key: 'cutport', label: '截关 / 港时间（上海时间）', type: 'datetime-local', value: o.cutport },
-    { key: 'etd', label: 'ETD · 预计开船日期', type: 'date', value: o.etd },
-    { key: 'eta', label: 'ETA · 预计到港日期', type: 'date', value: o.eta },
+    { key: 'releaseCutoff', label: '截止放行条时间（上海时间）', type: 'datetime-local', value: o.releaseCutoff },
+    { key: 'etd', label: 'ETD · 预计开船日期 / 时间', type: o.etd?.includes('T') ? 'datetime-local' : 'date', value: o.etd },
+    { key: 'eta', label: 'ETA · 预计到港日期 / 时间', type: o.eta?.includes('T') ? 'datetime-local' : 'date', value: o.eta },
+    ...BookingParser.timeKeys.filter(key => o.timeZones?.[key]).map(key => ({ key: 'zone_' + key, label: BookingParser.labels[key] + ' · 时区（上方时间按此时区）', type: 'select', value: o.timeZones[key], options: BookingImport.zones })),
     { key: 'vessel', label: '船名 / 航次', value: o.vessel },
     { key: 'status', label: '异常标记', type: 'select', value: o.status === '异常' ? '异常' : '正常', options: ['正常', '异常'] }
   ], data => {
     for (const key of ['so', 'sales', 'pol', 'pod']) if (!data[key]) { setFieldError(key, '请填写此项'); return false; }
     if (ORDER_LIST.some(x => x.id !== o.id && x.so.toLowerCase() === data.so.toLowerCase())) { setFieldError('so', 'SO 号已存在'); return false; }
-    for (const key of ['cutoff', 'cutport', 'etd', 'eta']) if (data[key] && !Number.isFinite(dateValue(data[key]))) { setFieldError(key, '请填写有效日期'); return false; }
-    if (data.etd && data.eta && data.eta < data.etd) { setFieldError('eta', '到港日期不能早于开船日期'); return false; }
-    const target = order || { id: newId(), remark: '', cutoffDone: false, cutportDone: false };
-    if (order && target.cutoff !== data.cutoff) target.cutoffDone = false;
-    if (order && target.cutport !== data.cutport) target.cutportDone = false;
+    for (const key of BookingParser.timeKeys) if (data[key] && !BookingParser.validLocal(data[key])) { setFieldError(key, '请填写有效日期'); return false; }
+    const timeZones = { ...o.timeZones };
+    for (const key of BookingParser.timeKeys) if ('zone_' + key in data) { timeZones[key] = data['zone_' + key]; delete data['zone_' + key]; }
+    if (o.importSource) {
+      const result = BookingParser.check({ ...o, ...data, timeZones }, ORDER_LIST);
+      if (result.errors.length) { toast(result.errors.join('；'), 'error'); return false; }
+    } else if (data.etd && data.eta && data.eta < data.etd) { setFieldError('eta', '到港日期不能早于开船日期'); return false; }
+    const target = order || { id: newId(), remark: '', cutoffDone: false, cutportDone: false, releaseCutoffDone: false };
+    const oldSo = target.so;
+    for (const [key, flag] of [['cutoff', 'cutoffDone'], ['cutport', 'cutportDone'], ['releaseCutoff', 'releaseCutoffDone']]) if (order && (target[key] !== data[key] || target.timeZones?.[key] !== timeZones[key])) target[flag] = false;
     Object.assign(target, data, { status: data.status === '异常' ? '异常' : '进行中' });
+    if (Object.keys(timeZones).length) target.timeZones = timeZones;
+    if (order && oldSo !== target.so) TODO_LIST.filter(t => t.orderId === target.id || (!t.orderId && t.so === oldSo)).forEach(t => { t.so = target.so; t.orderId = target.id; });
     if (!order) ORDER_LIST.unshift(target);
     flowOf(target);
     const saved = persistWorkspace();
@@ -506,7 +543,12 @@ function editOrder(order) {
     renderContent();
     if (saved) toast(order ? '订单已更新' : '订单已创建');
     return true;
-  }, { wide: true });
+  }, { wide: true, wire: () => {
+    if (o.timeZones) for (const key of BookingParser.timeKeys) {
+      const input = $('#mf-' + key);
+      if (input) input.closest('.field').querySelector('label').textContent = BookingParser.labels[key] + '（所选时区的当地时间）';
+    }
+  } });
 }
 
 /* 船期刷新：地址由用户后期配置，调用数据服务，不将普通网页当作船期结果。 */
@@ -561,12 +603,14 @@ async function refreshSailings(options = {}) {
   const snapshots = [];
   ORDER_LIST.forEach(o => {
     if (orderStatus(o) === '已完成') return;
+    // 当前船期接口仅返回日期，不能覆盖订舱单保留的具体时刻与原文时区。
+    if (o.importSource && (o.etd?.includes('T') || o.eta?.includes('T'))) return;
     const query = sailingIdentity(o);
     if (!query) return;
     queries.set(query.key, query);
     snapshots.push({ id: o.id, key: query.key, etd: o.etd, eta: o.eta });
   });
-  if (!snapshots.length) { toast('没有可刷新的订单，请先补齐船名、航次和港口', 'warn'); return; }
+  if (!snapshots.length) { toast('没有可刷新的订单：请补齐航次和港口；含原单具体时刻的订单需人工核对船期', 'warn'); return; }
   let endpoint;
   try { endpoint = syncEndpoint(syncConfig.endpoint); }
   catch (error) { toast(error.message, 'error'); if (!automatic) configureSailingSync(); return; }
@@ -689,28 +733,45 @@ document.addEventListener('keydown', e => {
 });
 
 
-$('#primaryBtn').onclick = () => {
-  if (state.module === 'settings') {
-    window.SettingsPage.saveCurrent(state.settingsTab, { toast, openForm, closeModal });
-    return;
-  }
+function newTodo(draft = {}) {
   openForm('新建待办', [
-    { key: 'title', label: '标题', required: true },
-    { key: 'owner', label: '负责人', value: '陈亦航', required: true },
-    { key: 'due', label: '截止时间（上海时间）', type: 'datetime-local', value: businessNow() },
-    { key: 'so', label: '关联 SO（可选）', type: 'select', options: [{ value: '', label: '不关联订单' }, ...ORDER_LIST.map(o => o.so)] },
-    { key: 'note', label: '备注', type: 'textarea', full: true }
+    { key: 'title', label: '标题', value: draft.title, required: true },
+    { key: 'owner', label: '负责人', value: draft.owner || '陈亦航', required: true },
+    { key: 'due', label: '截止时间（上海时间）', type: 'datetime-local', value: draft.due ?? businessNow() },
+    { key: 'so', label: '关联 SO（可选）', type: 'select', value: draft.so, options: [{ value: '', label: '不关联订单' }, ...ORDER_LIST.map(o => o.so)] },
+    { key: 'note', label: '备注', type: 'textarea', value: draft.note, full: true }
   ], data => {
     if (!data.title) { setFieldError('title', '请填写待办标题'); return false; }
     if (!data.owner) { setFieldError('owner', '请指定负责人'); return false; }
     if (data.due && !Number.isFinite(dateValue(data.due))) { setFieldError('due', '请填写有效截止时间'); return false; }
-    TODO_LIST.unshift({ ...data, id: newId(), done: false });
+    if (data.so && !ORDER_LIST.some(o => o.so === data.so)) { setFieldError('so', '关联订单不存在，请重新选择'); return false; }
+    TODO_LIST.unshift({ ...data, id: newId(), orderId: ORDER_LIST.find(o => o.so === data.so)?.id || '', done: false });
     const saved = persistWorkspace();
     state.filter = '今日待办';
     renderContent();
     if (saved) toast('待办已创建：' + data.title);
     return true;
-  });
+  }, { bodyHtml: '<div class="booking-entry"><button type="button" class="btn" id="openBookingImport">粘贴 / 导入 PDF、截图，自动新建订单</button><small>识别订舱单后填写 SO、港口和船期，同时关联本条待办。</small></div>', wire: () => {
+    $('#openBookingImport').onclick = () => BookingImport.open({ esc, openForm, readForm: readModalForm, getOrders: () => ORDER_LIST, create: createImportedBooking }, readModalForm());
+  } });
+}
+function createImportedBooking(data, todo) {
+  const result = BookingParser.check(data, ORDER_LIST);
+  if (result.errors.length) { toast(result.errors.join('；'), 'error'); return false; }
+  const order = { ...data, id: newId(), remark: '', cutoffDone: false, cutportDone: false, releaseCutoffDone: false, status: '进行中', bookingConfirmed: false, siConfirmed: false };
+  flowOf(order);
+  const linked = { ...todo, id: newId(), orderId: order.id, so: order.so, done: false };
+  ORDER_LIST.unshift(order); TODO_LIST.unshift(linked);
+  if (!persistWorkspace()) {
+    ORDER_LIST.splice(ORDER_LIST.indexOf(order), 1); TODO_LIST.splice(TODO_LIST.indexOf(linked), 1);
+    toast('保存失败，未创建订单或待办。请保留导入窗口并处理存储问题后重试。', 'error'); return false;
+  }
+  state.filter = '全部'; state.expanded = order.id; renderContent();
+  toast('已新建 SO ' + order.so + '，并关联一条待办'); return true;
+}
+$('#primaryBtn').onclick = () => {
+  if (state.module === 'settings') { window.SettingsPage.saveCurrent(state.settingsTab, { toast, openForm, closeModal }); return; }
+  newTodo();
 };
 
 $('#search').oninput = e => {
