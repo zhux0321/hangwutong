@@ -84,7 +84,15 @@ window.BookingImport = (() => {
       try {
         const pdf = await this.pdfTask.promise;
         if (pdf.numPages > 20) throw new Error('单个 PDF 最多识别 20 页，请拆分后导入');
-        const result = [];
+        const result = [], nativePages = [];
+        const recognizePage = async (page, n) => {
+          const initial = page.getViewport({ scale: 1 });
+          const scale = Math.min(4, 3000 / Math.max(initial.width, initial.height), Math.sqrt(8000000 / (initial.width * initial.height)));
+          const viewport = page.getViewport({ scale });
+          const canvas = document.createElement('canvas'); canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
+          try { await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise; return await this.ocr(canvas, file.name, n); }
+          finally { canvas.width = canvas.height = 0; }
+        };
         for (let n = 1; n <= pdf.numPages; n++) {
           this.guard(); this.progress(`正在读取 ${file.name} · 第 ${n} / ${pdf.numPages} 页`);
           const page = await pdf.getPage(n);
@@ -92,16 +100,46 @@ window.BookingImport = (() => {
             const content = await page.getTextContent();
             const text = mergeRows(content.items.filter(i => i.str).map(i => ({ text: i.str, x: i.transform[4], y: -i.transform[5], height: i.height || 10 })));
             const readable = (text.match(/[\u3400-\u9fffA-Za-z0-9]/g) || []).length;
-            if (!forceOCR && readable >= 60 && !/[\uFFFD]{3}/.test(text)) result.push({ name: file.name, page: n, text, method: 'PDF 文字' });
-            else {
-              const initial = page.getViewport({ scale: 1 });
-              const scale = Math.min(2.5, 3000 / Math.max(initial.width, initial.height), Math.sqrt(8000000 / (initial.width * initial.height)));
-              const viewport = page.getViewport({ scale });
-              const canvas = document.createElement('canvas'); canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
-              try { await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise; result.push(await this.ocr(canvas, file.name, n)); }
-              finally { canvas.width = canvas.height = 0; }
-            }
+            if (!forceOCR && readable >= 60 && !/[\uFFFD]{3}/.test(text)) {
+              const source = { name: file.name, page: n, text, method: 'PDF 文字' };
+              result.push(source); nativePages.push(source);
+            } else result.push(await recognizePage(page, n));
           } finally { page.cleanup(); }
+        }
+        // 英文日期可读不代表中文港口标签可读。按整个文件的实际字段覆盖检查，缺关键项才补 OCR。
+        const critical = ['pol', 'pod', 'vessel'];
+        const missingCritical = () => {
+          const parsed = P.parse(result);
+          return critical.filter(key => !parsed.candidates[key]?.length);
+        };
+        if (!forceOCR && missingCritical().length && nativePages.length) {
+          const routePages = nativePages.filter(source => /ROUTE\s+INFORMATION|\b(?:ETD|ETA|PORT|VESSEL)\b|装.{0,4}港|卸.{0,4}港|航次/i.test(source.text));
+          for (const source of routePages.length ? routePages : nativePages) {
+            this.guard();
+            const missing = missingCritical();
+            if (!missing.length) break;
+            const parsed = P.parse(result);
+            const allowedFields = Object.keys(P.labels).filter(key => !parsed.candidates[key]?.length);
+            if (allowedFields.includes('vessel')) allowedFields.push('voyage');
+            this.progress(`文字层未识别 ${missing.map(key => P.labels[key]).join('、')}，正在图片补识别 · 第 ${source.page} 页`);
+            const page = await pdf.getPage(source.page);
+            try {
+              const recovered = await recognizePage(page, source.page);
+              // 补识别不能悄悄盖掉文字层；两种方法确有不同值时，保留双方候选交由用户核对。
+              const imageFields = P.parse([recovered]).candidates;
+              const compatible = (key, a, b) => {
+                if (P.timeKeys.includes(key)) return a.value.slice(0, Math.min(a.value.length, b.value.length)) === b.value.slice(0, Math.min(a.value.length, b.value.length)) && (!a.rawZone || !b.rawZone || a.rawZone === b.rawZone);
+                const first = P.keyOf(a.value), second = P.keyOf(b.value);
+                return first === second || (['pol', 'pod', 'receipt', 'vessel'].includes(key) && (first.startsWith(second) || second.startsWith(first)));
+              };
+              for (const key of Object.keys(P.labels)) if (parsed.candidates[key]?.length && imageFields[key]?.some(image => !parsed.candidates[key].some(native => compatible(key, image, native)))) allowedFields.push(key);
+              result.push({ ...recovered, method: 'PDF 图片补识别（OCR）', allowedFields,
+                notices: ['PDF 文字层有关键字段缺失，已用页面图片补识别；若两种结果不同会列出候选，须核对后选择，不自动覆盖。'] });
+            } catch (error) {
+              this.guard();
+              source.notices = [...(source.notices || []), '图片补识别未完成，已保留 PDF 文字结果；缺失字段请核对原文件后填写或重新导入。'];
+            } finally { page.cleanup(); }
+          }
         }
         return result;
       } catch (error) {
@@ -160,6 +198,15 @@ window.BookingImport = (() => {
       const fingerprint = JSON.stringify(data);
       if (lastChecked && lastChecked !== fingerprint) document.getElementById('bookingReviewed').checked = false;
       lastChecked = fingerprint;
+      for (const key of Object.keys(P.labels)) {
+        const input = document.getElementById('mf-' + key);
+        if (!input) continue;
+        let hint = input.closest('.field').querySelector('.booking-field-status');
+        if (!hint) { hint = document.createElement('small'); hint.className = 'field-hint booking-field-status'; input.closest('.field').appendChild(hint); }
+        const count = parsed.candidates[key]?.length || 0;
+        hint.textContent = !analyzed || input.value ? '' : count > 1 ? `识别出 ${count} 个不同值，请在上方候选中选择或对照原单填写。` : count === 0 ? '未能可靠识别，请查看原文件核对后补填或重新导入。' : '原文信息不完整，请对照原单补齐。';
+        hint.hidden = !hint.textContent;
+      }
       document.getElementById('modalSave').disabled = busy || !analyzed || result.errors.length > 0 || !document.getElementById('bookingReviewed').checked;
       return result;
     }
@@ -183,7 +230,7 @@ window.BookingImport = (() => {
       }
       if (!todoDraft.title) document.getElementById('mf-title').value = parsed.values.so ? '跟进订舱 · ' + parsed.values.so : '';
       const evidence = document.getElementById('bookingEvidence');
-      evidence.innerHTML = Object.entries(parsed.candidates).filter(([key]) => P.labels[key]).map(([key, entries]) => `<div class="booking-candidate"><b>${esc(P.labels[key])}</b>${entries.length > 1 ? `<select data-candidate="${key}" aria-label="选择${esc(P.labels[key])}候选值"><option value="">多个候选，请选择或在下方手工填写</option>${entries.map((entry, i) => `<option value="${i}">${esc(entry.raw)} · ${esc(entry.source)} 第${entry.page}页</option>`).join('')}</select>` : ''}${entries.map(e => `<p>${esc(e.raw)} <small>来源：${esc(e.source)} · 第 ${e.page} 页</small></p>`).join('')}</div>`).join('') + sources.map(source => `<h4>${esc(source.name)} · 第 ${source.page || 1} 页 · ${esc(source.method || '文字')}</h4><pre>${esc(source.text)}</pre>`).join('');
+      evidence.innerHTML = Object.entries(parsed.candidates).filter(([key]) => P.labels[key]).map(([key, entries]) => `<div class="booking-candidate"><b>${esc(P.labels[key])}</b>${entries.length > 1 ? `<select data-candidate="${key}" aria-label="选择${esc(P.labels[key])}候选值"><option value="">多个候选，请选择或在下方手工填写</option>${entries.map((entry, i) => `<option value="${i}">${esc(entry.raw)} · ${esc(entry.source)} 第${entry.page}页 · ${esc(entry.method || '文字')}</option>`).join('')}</select>` : ''}${entries.map(e => `<p>${esc(e.raw)} <small>来源：${esc(e.source)} · 第 ${e.page} 页 · ${esc(e.method || '文字')}</small></p>`).join('')}</div>`).join('') + sources.map(source => `<h4>${esc(source.name)} · 第 ${source.page || 1} 页 · ${esc(source.method || '文字')}</h4><pre>${esc(source.text)}</pre>`).join('');
       document.querySelectorAll('[data-candidate]').forEach(select => select.onchange = () => {
         const key = select.dataset.candidate, entry = parsed.candidates[key][Number(select.value)];
         if (select.value === '' || !entry) return;
@@ -228,7 +275,9 @@ window.BookingImport = (() => {
         }
         if (!active || token !== generation) return;
         if (sources.length + next.length > 40) throw new Error('当前来源已超过 40 页，请只导入同一票相关页面');
-        sources.push(...next); fill(); progress('识别完成，请对照原单核对并处理自检提示。');
+        sources.push(...next); fill();
+        const unclear = ['pol', 'pod', 'vessel'].filter(key => !parsed.values[key]);
+        progress(unclear.length ? '识别完成；' + unclear.map(key => P.labels[key]).join('、') + '尚需核对，已在字段下说明原因。' : '识别完成，请对照原单核对并处理自检提示。');
       } catch (error) { if (active && token === generation) progress('未完成导入：' + (error.message || String(error))); }
       finally { clearTimeout(timer); await current.stop().catch(() => {}); releaseUnusedPreviews(); if (scanner === current) scanner = null; if (active && token === generation) setBusy(false); }
     }
