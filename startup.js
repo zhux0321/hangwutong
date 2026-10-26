@@ -10,7 +10,7 @@ acknowledge.onchange = () => { proceed.disabled = !acknowledge.checked; };
 function loadAppScript(src) {
   return new Promise((resolve, reject) => {
     const script = document.createElement('script');
-    script.src = src + '?v=1.4.1';
+    script.src = src + '?v=1.4.2';
     script.onload = resolve;
     script.onerror = () => reject(new Error('程序文件加载失败，请重新解压完整交付包'));
     document.body.appendChild(script);

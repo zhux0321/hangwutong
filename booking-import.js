@@ -163,6 +163,7 @@ window.BookingImport = (() => {
   function open(host, todoDraft = {}) {
     const { esc, openForm, getOrders } = host;
     let sources = [], parsed = P.parse([]), scanner = null, active = true, busy = false, generation = 0, analyzed = false;
+    let selectedCandidates = {};
     const previewURLs = new Set();
     function releaseUnusedPreviews() {
       for (const url of previewURLs) if (!sources.some(source => source.previewURL === url)) { URL.revokeObjectURL(url); previewURLs.delete(url); }
@@ -187,6 +188,38 @@ window.BookingImport = (() => {
       data.timeZones = Object.fromEntries(P.timeKeys.map(key => [key, data['zone_' + key]]));
       return data;
     }
+    const candidateValue = (key, entry) => P.timeKeys.includes(key) && entry.value.length === 10 && !['etd', 'eta'].includes(key) ? '' : entry.value;
+    function chooseCandidate(key, index) {
+      const input = document.getElementById('mf-' + key);
+      const entry = index === '' ? null : parsed.candidates[key]?.[Number(index)];
+      if (!input) return;
+      document.getElementById('bookingReviewed').checked = false;
+      if (!entry) { delete selectedCandidates[key]; input.value = ''; selfCheck(); return; }
+      selectedCandidates[key] = Number(index);
+      if (P.timeKeys.includes(key)) {
+        input.type = ['etd', 'eta'].includes(key) && entry.value.length === 10 ? 'date' : 'datetime-local';
+        document.getElementById('mf-zone_' + key).value = entry.zone;
+        parsed.sourceTimes[key] = { ...entry };
+      }
+      input.value = candidateValue(key, entry);
+      selfCheck();
+    }
+    function paintInlineCandidates() {
+      for (const key of Object.keys(P.labels)) {
+        const input = document.getElementById('mf-' + key);
+        if (!input) continue;
+        input.closest('.field').querySelector('.booking-inline-candidates')?.remove();
+        const entries = parsed.candidates[key] || [];
+        if (entries.length < 2) continue;
+        const group = document.createElement('div');
+        group.className = 'booking-inline-candidates';
+        group.setAttribute('role', 'group');
+        group.setAttribute('aria-label', P.labels[key] + '识别候选');
+        group.innerHTML = `<p class="booking-choice-label">识别到 ${entries.length} 个不同值，点击选用：</p><div class="booking-inline-options">${entries.map((entry, index) => `<button type="button" class="booking-choice" data-candidate-choice="${key}" data-candidate-index="${index}" aria-pressed="false" title="${esc(entry.raw)}"><strong>${esc(P.timeKeys.includes(key) ? entry.raw : entry.value)}</strong><small>${esc(entry.source)} · 第 ${entry.page} 页 · ${esc(entry.method || '文字')}</small><span class="booking-choice-mark" aria-hidden="true">选用此值</span></button>`).join('')}</div>`;
+        group.querySelectorAll('[data-candidate-choice]').forEach(button => { button.onclick = () => chooseCandidate(key, button.dataset.candidateIndex); });
+        input.insertAdjacentElement('afterend', group);
+      }
+    }
     function selfCheck() {
       if (!active) return;
       const data = read(), result = P.check(data, getOrders(), analyzed ? parsed : null);
@@ -204,7 +237,16 @@ window.BookingImport = (() => {
         let hint = input.closest('.field').querySelector('.booking-field-status');
         if (!hint) { hint = document.createElement('small'); hint.className = 'field-hint booking-field-status'; input.closest('.field').appendChild(hint); }
         const count = parsed.candidates[key]?.length || 0;
-        hint.textContent = !analyzed || input.value ? '' : count > 1 ? `识别出 ${count} 个不同值，请在上方候选中选择或对照原单填写。` : count === 0 ? '未能可靠识别，请查看原文件核对后补填或重新导入。' : '原文信息不完整，请对照原单补齐。';
+        const selected = selectedCandidates[key];
+        if (selected !== undefined && (!parsed.candidates[key]?.[selected] || input.value !== candidateValue(key, parsed.candidates[key][selected]))) delete selectedCandidates[key];
+        input.closest('.field').querySelectorAll('[data-candidate-choice]').forEach(button => {
+          const chosen = Number(button.dataset.candidateIndex) === selectedCandidates[key];
+          button.setAttribute('aria-pressed', String(chosen));
+          button.querySelector('.booking-choice-mark').textContent = chosen ? '✓ 已选用' : '选用此值';
+        });
+        const select = document.querySelector(`[data-candidate="${key}"]`);
+        if (select) select.value = selectedCandidates[key] === undefined ? '' : String(selectedCandidates[key]);
+        hint.textContent = !analyzed || input.value ? '' : count > 1 ? '请点击此字段下的选项填入，或对照原单手工填写。' : count === 0 ? '未能可靠识别，请查看原文件核对后补填或重新导入。' : '原文信息不完整，请对照原单补齐。';
         hint.hidden = !hint.textContent;
       }
       document.getElementById('modalSave').disabled = busy || !analyzed || result.errors.length > 0 || !document.getElementById('bookingReviewed').checked;
@@ -218,6 +260,7 @@ window.BookingImport = (() => {
     function fill() {
       if (!active) return;
       parsed = P.parse(sources); analyzed = sources.length > 0;
+      selectedCandidates = {};
       for (const key of Object.keys(P.labels)) {
         const el = document.getElementById('mf-' + key); if (!el) continue;
         const value = parsed.values[key] || '';
@@ -231,15 +274,8 @@ window.BookingImport = (() => {
       if (!todoDraft.title) document.getElementById('mf-title').value = parsed.values.so ? '跟进订舱 · ' + parsed.values.so : '';
       const evidence = document.getElementById('bookingEvidence');
       evidence.innerHTML = Object.entries(parsed.candidates).filter(([key]) => P.labels[key]).map(([key, entries]) => `<div class="booking-candidate"><b>${esc(P.labels[key])}</b>${entries.length > 1 ? `<select data-candidate="${key}" aria-label="选择${esc(P.labels[key])}候选值"><option value="">多个候选，请选择或在下方手工填写</option>${entries.map((entry, i) => `<option value="${i}">${esc(entry.raw)} · ${esc(entry.source)} 第${entry.page}页 · ${esc(entry.method || '文字')}</option>`).join('')}</select>` : ''}${entries.map(e => `<p>${esc(e.raw)} <small>来源：${esc(e.source)} · 第 ${e.page} 页 · ${esc(e.method || '文字')}</small></p>`).join('')}</div>`).join('') + sources.map(source => `<h4>${esc(source.name)} · 第 ${source.page || 1} 页 · ${esc(source.method || '文字')}</h4><pre>${esc(source.text)}</pre>`).join('');
-      document.querySelectorAll('[data-candidate]').forEach(select => select.onchange = () => {
-        const key = select.dataset.candidate, entry = parsed.candidates[key][Number(select.value)];
-        if (select.value === '' || !entry) return;
-        const input = document.getElementById('mf-' + key);
-        if (P.timeKeys.includes(key)) input.type = ['etd', 'eta'].includes(key) && entry.value.length === 10 ? 'date' : 'datetime-local';
-        input.value = P.timeKeys.includes(key) && entry.value.length === 10 && !['etd', 'eta'].includes(key) ? '' : entry.value;
-        if (P.timeKeys.includes(key)) document.getElementById('mf-zone_' + key).value = entry.zone;
-        selfCheck();
-      });
+      document.querySelectorAll('[data-candidate]').forEach(select => select.onchange = () => chooseCandidate(select.dataset.candidate, select.value));
+      paintInlineCandidates();
       if (Object.values(parsed.candidates).some(entries => entries.length > 1)) evidence.closest('details').open = true;
       document.getElementById('bookingReviewed').checked = false;
       paintSources(); selfCheck();
@@ -291,6 +327,8 @@ window.BookingImport = (() => {
       document.getElementById('modalBody').removeEventListener('change', change);
     }
     function change(event) {
+      // 完整证据区选择器由自身 onchange 处理；不能在先到达的 input 事件中回写旧选项。
+      if (event.target.matches('[data-candidate]')) return;
       if (event.target.id === 'bookingText') { if (analyzed) { analyzed = false; progress('粘贴文字已修改，请重新点击“识别文字并填充”，再核对。'); } }
       selfCheck();
     }

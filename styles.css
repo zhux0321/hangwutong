@@ -466,6 +466,17 @@ dialog.booking-modal{width:min(960px,95vw)}
 .booking-candidate p{margin:5px 0;overflow-wrap:anywhere}
 .booking-candidate small{color:var(--muted)}
 .booking-candidate select{display:block;max-width:100%;padding:6px;margin-top:6px;border:1px solid #d79b3d;border-radius:6px}
+.booking-inline-candidates{min-width:0;padding:10px;border:1px solid #ebcf9e;border-radius:9px;background:#fffcf6}
+.booking-choice-label{margin:0 0 8px;font-size:12px;color:#91601b}
+.booking-inline-options{display:grid;gap:7px;min-width:0}
+.field.full .booking-inline-options{grid-template-columns:repeat(2,minmax(0,1fr))}
+.booking-choice{display:grid;gap:5px;align-content:start;min-width:0;width:100%;padding:9px 11px;text-align:left;border:1px solid var(--line);border-radius:8px;background:white;color:var(--text);cursor:pointer;overflow-wrap:anywhere}
+.booking-choice:hover{border-color:#80afd1;background:#f5faff}
+.booking-choice:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.booking-choice[aria-pressed="true"]{border-color:var(--blue);background:#edf6ff;box-shadow:0 0 0 1px var(--blue)}
+.booking-choice strong{font-size:13px;font-weight:600;line-height:1.5}
+.booking-choice small{font-size:11px;color:var(--muted);line-height:1.5}
+.booking-choice-mark{font-size:11px;color:var(--blue)}
 .booking-check{margin:0 20px 16px;padding:16px;background:#f8fafc;border:1px solid var(--line);border-radius:10px;font-size:12px;line-height:1.8;overflow-wrap:anywhere}
 .booking-check h3{font-size:15px;margin:0 0 6px}.booking-check h4{margin:8px 0 4px}
 .booking-check ul{margin:4px 0;padding-left:20px}.booking-check .check-error{color:var(--red)}
