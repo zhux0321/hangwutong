@@ -373,7 +373,8 @@ table.order-list tbody tr:hover td .node{background:#dbeafa}
 .toolbar-actions{display:flex;align-items:center;gap:12px;margin-left:auto}
 .toolbar-actions .btn{white-space:nowrap}
 .toolbar-actions .search{min-width:180px}
-.sync-actions{display:inline-flex;align-items:center;gap:3px}
+.sync-actions{display:inline-flex;align-items:center;gap:3px;flex-wrap:wrap}
+.sync-website{display:inline-flex;align-items:center;text-decoration:none;color:var(--blue);white-space:nowrap}
 .sync-refresh{color:var(--blue);white-space:nowrap}
 .sync-config{border:0;background:transparent;color:var(--muted);border-radius:6px;padding:7px;cursor:pointer}
 .sync-config:hover{background:var(--blue-soft);color:var(--blue)}

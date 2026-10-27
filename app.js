@@ -88,11 +88,22 @@ const ORDER_LIST = restored ? restored.orders : ORDER_SEED.map(o => ({ ...o, id:
 const TODO_LIST = restored ? restored.todos : [];
 let state = { module: 'dashboard', filter: '全部', query: '', saved: 0, settingsTab: '用户与权限', expanded: null };
 const SYNC_KEY = 'hangwutong.sailing-sync.v1';
-let syncConfig = { endpoint: '', lastSuccess: '', lastSummary: '', autoAnchor: 0, lastAttempt: 0 };
+const DEFAULT_WEIYUN_URL = 'https://www.weiyun001.com/?regionredirected=true';
+let syncConfig = { queryUrl: DEFAULT_WEIYUN_URL, endpoint: '', lastSuccess: '', lastSummary: '', autoAnchor: 0, lastAttempt: 0 };
+let syncWebsiteMigrated = false;
 try {
   const saved = JSON.parse(localStorage.getItem(SYNC_KEY) || 'null');
   if (saved && typeof saved.endpoint === 'string') syncConfig = { ...syncConfig, ...saved };
 } catch (error) { /* 未配置时保持空地址，不发起请求。 */ }
+try { syncConfig.queryUrl = sailingWebAddress(syncConfig.queryUrl || DEFAULT_WEIYUN_URL); }
+catch (error) { syncConfig.queryUrl = DEFAULT_WEIYUN_URL; }
+// 兼容旧设置：网站首页只能用于打开查询，不能继续向它 POST 订单查询。
+if (isWeiyunHomepage(syncConfig.endpoint)) {
+  syncConfig = { ...syncConfig, queryUrl: DEFAULT_WEIYUN_URL, endpoint: '', lastSuccess: '', lastSummary: '', autoAnchor: 0, lastAttempt: 0 };
+  syncWebsiteMigrated = true;
+  try { localStorage.setItem(SYNC_KEY, JSON.stringify(syncConfig)); window.LocalData?.changed(); }
+  catch (error) { /* 当前会话仍停用误填的首页；保存失败时下次再次修正。 */ }
+}
 let syncBusy = false;
 
 function persistWorkspace() {
@@ -281,7 +292,7 @@ function renderHead(m) {
 function filters(list) {
   $('#filters').innerHTML = list.map(x => `<button class="chip ${state.filter === x ? 'active' : ''}" data-filter="${x}">${x}</button>`).join('');
   if (state.module === 'dashboard') {
-    $('#filters').insertAdjacentHTML('beforeend', `<div class="sync-actions"><button type="button" class="chip sync-refresh" id="sailingRefresh"${syncBusy ? ' disabled' : ''} title="${syncConfig.endpoint ? '查询并更新订单 ETD / ETA' : '地址待配置'}">${syncBusy ? '刷新中…' : '↻ 刷新维运网'}</button><button type="button" class="sync-config" id="sailingConfig" aria-label="维运网刷新设置" title="维运网刷新设置"${syncBusy ? ' disabled' : ''}>⚙</button></div>`);
+    $('#filters').insertAdjacentHTML('beforeend', `<div class="sync-actions"><a class="chip sync-website" id="sailingWebsite" href="${esc(syncConfig.queryUrl)}" target="_blank" rel="noopener noreferrer">维运网国内查询 ↗</a><button type="button" class="chip sync-refresh" id="sailingRefresh"${syncBusy ? ' disabled' : ''} title="${syncConfig.endpoint ? '查询并更新订单 ETD / ETA' : '自动更新待接入；点击查看设置'}">${syncBusy ? '刷新中…' : '↻ 刷新维运网'}</button><button type="button" class="sync-config" id="sailingConfig" aria-label="维运网刷新设置" title="维运网刷新设置"${syncBusy ? ' disabled' : ''}>⚙</button></div>`);
     $('#sailingRefresh').onclick = refreshSailings;
     $('#sailingConfig').onclick = configureSailingSync;
   }
@@ -413,7 +424,7 @@ function detailHtml(o) {
       <label class="deadline-item"><input type="checkbox" data-deadline="cutoffDone" data-order="${esc(o.id)}"${o.cutoffDone ? ' checked' : ''}><span><b>截单已完成</b><small>${orderDateText(o, 'cutoff')}</small></span></label>
       <label class="deadline-item"><input type="checkbox" data-deadline="cutportDone" data-order="${esc(o.id)}"${o.cutportDone ? ' checked' : ''}><span><b>截关 / 港已完成</b><small>${orderDateText(o, 'cutport')}</small></span></label>
       ${o.releaseCutoff ? `<label class="deadline-item"><input type="checkbox" data-deadline="releaseCutoffDone" data-order="${esc(o.id)}"${o.releaseCutoffDone ? ' checked' : ''}><span><b>放行条已完成</b><small>${orderDateText(o, 'releaseCutoff')}</small></span></label>` : ''}
-      <div class="vessel-query"><a href="https://weiyun001.com/" target="_blank" rel="noopener noreferrer">维运网查询 ↗</a><small>船名 / 航次：${esc(o.vessel || '待补')}<br>ETD ${orderDateText(o, 'etd')} · ETA ${orderDateText(o, 'eta')}<br>查询后可在“编辑订单”更新船期</small></div>
+      <div class="vessel-query"><a href="${esc(syncConfig.queryUrl)}" target="_blank" rel="noopener noreferrer">维运网国内查询 ↗</a><small>船名 / 航次：${esc(o.vessel || '待补')}<br>ETD ${orderDateText(o, 'etd')} · ETA ${orderDateText(o, 'eta')}<br>查询后可在“编辑订单”更新船期</small></div>
     </div>
     ${o.receipt ? `<p class="list-hint">接货地：${esc(o.receipt)}</p>` : ''}
     ${importRecordHtml(o)}
@@ -552,30 +563,53 @@ function editOrder(order) {
 }
 
 /* 船期刷新：地址由用户后期配置，调用数据服务，不将普通网页当作船期结果。 */
-function syncEndpoint(value) {
-  const url = new URL(value);
-  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash) throw new Error('请填写完整的 http 或 https 数据服务地址');
+function sailingWebAddress(value) {
+  let url;
+  // 从聊天粘贴的网址可能带有句末中文标点。
+  try { url = new URL(String(value).trim().replace(/[，。；、]+$/u, '').trim()); }
+  catch (error) { throw new Error('请填写完整的 http 或 https 网址'); }
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash) throw new Error('请填写完整的 http 或 https 网址，不能包含账号密码或 # 片段');
+  if (['weiyun001.com', 'www.weiyun001.com'].includes(url.hostname) && url.pathname === '/') return DEFAULT_WEIYUN_URL;
   return url.href;
+}
+function isWeiyunHomepage(value) {
+  if (!value) return false;
+  try { return sailingWebAddress(value) === DEFAULT_WEIYUN_URL; }
+  catch (error) { return false; }
+}
+function syncEndpoint(value) {
+  const address = sailingWebAddress(value);
+  if (isWeiyunHomepage(address)) throw new Error('这是维运网普通网页，请填在上方“国内查询网址”；自动更新需要船期数据接口，不能填写首页');
+  return address;
 }
 function configureSailingSync() {
   if (syncBusy) return;
-  openForm('维运网刷新设置', [{ key: 'endpoint', label: '船期数据服务地址', type: 'url', value: syncConfig.endpoint, full: true,
-    hint: '地址可先留空。填写有效船期数据服务地址后，程序打开期间每小时自动刷新一次；普通网站首页不能直接同步。' }], data => {
+  openForm('维运网刷新设置', [
+    { key: 'queryUrl', label: '国内查询网址（用于打开网站）', value: syncConfig.queryUrl, full: true,
+      hint: '点击工作台“维运网国内查询”在新标签页打开。此网址用于人工查询，不会自动读取或修改订单船期。' },
+    { key: 'endpoint', label: '自动刷新数据服务地址（后期填写）', value: syncConfig.endpoint, full: true,
+      hint: '可先留空。接入有效船期数据服务后，程序打开期间每小时自动更新一次；维运网首页不能填写在这里。' }
+  ], data => {
+    let queryUrl;
+    try { queryUrl = sailingWebAddress(data.queryUrl || DEFAULT_WEIYUN_URL); }
+    catch (error) { setFieldError('queryUrl', error.message); return false; }
     let endpoint = '';
     if (data.endpoint) {
       try { endpoint = syncEndpoint(data.endpoint); }
       catch (error) { setFieldError('endpoint', error.message); return false; }
     }
-    const next = endpoint === syncConfig.endpoint ? { ...syncConfig } : { endpoint, lastSuccess: '', lastSummary: '', autoAnchor: Date.now(), lastAttempt: 0 };
+    const next = { ...syncConfig, queryUrl, endpoint,
+      ...(endpoint !== syncConfig.endpoint ? { lastSuccess: '', lastSummary: '', autoAnchor: Date.now(), lastAttempt: 0 } : {}) };
     try { localStorage.setItem(SYNC_KEY, JSON.stringify(next)); }
     catch (error) { setFieldError('endpoint', '浏览器无法保存设置，请检查本地存储'); return false; }
     syncConfig = next;
+    syncWebsiteMigrated = false;
     window.LocalData?.changed();
     scheduleSailingAutoRefresh();
     if (state.module === 'dashboard') renderContent();
-    toast(endpoint ? '地址已保存，程序打开期间将每小时自动刷新，也可手动刷新' : '地址已留空，后期填写后启用刷新', endpoint ? 'success' : 'warn');
+    toast(endpoint ? '设置已保存，程序打开期间将每小时自动刷新，也可手动刷新' : '国内查询网址已保存；自动更新待接入船期数据服务', endpoint ? 'success' : 'warn');
     return true;
-  }, { bodyHtml: `<p class="list-hint">${syncConfig.lastSuccess ? '上次成功检查：' + esc(syncConfig.lastSuccess) + '<br>' + esc(syncConfig.lastSummary) : '尚未同步船期；当前订单日期保持原样。'}</p>` });
+  }, { bodyHtml: `<p class="list-hint">${syncWebsiteMigrated ? '已将原先误填的数据服务首页改为国内查询网址。<br>' : ''}${!syncConfig.endpoint ? '自动更新尚未接入。打开网站查询不等于同步船期；当前订单日期保持原样。' : syncConfig.lastSuccess ? '上次成功检查：' + esc(syncConfig.lastSuccess) + '<br>' + esc(syncConfig.lastSummary) : '尚未同步船期；当前订单日期保持原样。'}<br><a href="${esc(syncConfig.queryUrl)}" target="_blank" rel="noopener noreferrer">打开维运网国内站 ↗</a></p>` });
 }
 function sailingIdentity(o) {
   const parts = String(o.vessel || '').split('/').map(x => x.trim());
